@@ -5,7 +5,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
@@ -14,7 +14,6 @@ class RDAuth(httpx.Auth):
         self.token = token
 
     def auth_flow(self, request):
-        print("Authenticating...")
         # Send the request, with a custom `X-Authentication` header.
         request.headers["Authorization"] = f"Bearer {self.token}"
         yield request
@@ -242,11 +241,47 @@ class RealDebrid:
                 response=response,
             )
 
+    def add_torrent_file(self, torrent_file: bytes) -> RDAddMagnet:
+        """
+        Adds a torrent file to Real-Debrid.
+
+        Args:
+            torrent_file (bytes): The torrent file to add.
+
+        Returns:
+            RDAddMagnet: Response from the Real-Debrid API.
+        """
+        response = self.client.put("/torrents/addTorrent", data=torrent_file)
+        if response.status_code < 299:
+            parsed = RDAddMagnet(**response.json())
+            self.select_torrent_files(torrent_id=parsed.id, file_ids="all")
+            return parsed
+        else:
+            raise httpx.HTTPStatusError(
+                f"Failed to add torrent file. Status code: {response.status_code}",
+                request=response.request,
+                response=response,
+            )
+
+    def add_torrent_from_url(self, torrent_url: str) -> RDAddMagnet:
+        """
+        Adds a torrent file from a URL to Real-Debrid.
+        Downloads the torrent file and then adds it.
+
+        Args:
+            torrent_url (str): URL of the torrent file.
+
+        Returns:
+            RDAddMagnet: Response from Real-Debrid API.
+        """
+        response = httpx.get(url=torrent_url, timeout=30)
+        return self.add_torrent_file(response.content)
+
     def get_torrent_info(self, torrent_id: str) -> RDTorrentInfo:
         """
         Returns detailed information about a torrent.
 
-        Parameters:
+        Args:
             torrent_id (str): ID of the torrent.
 
         Returns:
@@ -267,7 +302,7 @@ class RealDebrid:
         """
         Selects files to download in a torrent.
 
-        Parameters:
+        Args:
             torrent_id (str): ID of the torrent.
             file_ids (str): Comma-separated list of file IDs to select. Use "all" to select all files.
         """

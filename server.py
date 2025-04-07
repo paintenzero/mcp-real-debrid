@@ -3,7 +3,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from httpx import HTTPStatusError
 from real_debrid import RealDebrid, RDTorrent, RDTorrentInfo, RDAddMagnet
-
+from jackett import JackettAPI
 
 load_dotenv()
 
@@ -13,6 +13,7 @@ if not rd_token:
 
 mcp = FastMCP("Read-Debrid")
 rd = RealDebrid(token=rd_token)
+jackett = JackettAPI(os.environ["TORZSNAB_URL"], os.environ["TORZSNAB_API_KEY"])
 
 
 @mcp.tool()
@@ -31,7 +32,7 @@ def premium_expiration() -> str:
 @mcp.tool()
 def get_torrents(limit: int = 100, offset: int = 0) -> list[RDTorrent]:
     """
-    Returns the torrents.
+    Returns the active torrents from Real-Debrid.
 
     Parameters:
         limit (int): Number of torrents to fetch. Default is 100.
@@ -47,7 +48,7 @@ def get_torrents(limit: int = 100, offset: int = 0) -> list[RDTorrent]:
 @mcp.tool()
 def get_torrent_details(torrent_id: str) -> RDTorrentInfo:
     """
-    Returns details of a specific torrent.
+    Returns details of a specific torrent download from Real-Debrid.
 
     Parameters:
         torrent_id (str): ID of the torrent to fetch details for.
@@ -68,24 +69,26 @@ def get_torrent_details(torrent_id: str) -> RDTorrentInfo:
 
 
 @mcp.tool()
-def add_magnet_link(magnet_link: str) -> RDAddMagnet:
+def add_torrent(torrent_url: str) -> RDAddMagnet:
     """
-    Adds a magnet link to Real-Debrid.
+    Adds a torrent file from a URL to Real-Debrid.
 
     Parameters:
-        magnet_link (str): Magnet link to add.
+        torrent_url (str): URL of the torrent file.
 
     Returns:
-        RDAddMagnet: Response from Real-Debrid API.
+        RDTorrent: Response from Real-Debrid API.
     """
     try:
-        response = rd.add_magnet(magnet_link)
-        return response
+        if torrent_url.startswith("magnet:"):
+            return rd.add_magnet(torrent_url)
+        else:
+            return rd.add_torrent_from_url(torrent_url)
     except HTTPStatusError as e:
         if e.response.status_code == 400:
-            return "Invalid magnet link."
+            return "Invalid torrent URL."
         else:
-            return f"Error adding magnet link: {e.response.text}"
+            return f"Error adding torrent from URL: {e.response.text}"
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
 
@@ -93,7 +96,7 @@ def add_magnet_link(magnet_link: str) -> RDAddMagnet:
 @mcp.tool()
 def delete_torrent(torrent_id: str) -> str:
     """
-    Deletes a torrent.
+    Deletes a torrent from downloads in Real-Debrid.
 
     Parameters:
         torrent_id (str): ID of the torrent to delete.
@@ -109,5 +112,77 @@ def delete_torrent(torrent_id: str) -> str:
             return "Torrent not found."
         else:
             return f"Error deleting torrent: {e.response.text}"
+    except Exception as e:
+        return f"An unexpected error occurred: {str(e)}"
+
+
+@mcp.tool()
+def search_torrent(query: str) -> str:
+    """
+    Searches for a torrent.
+
+    Parameters:
+        query (str): Search query.
+
+    Returns:
+        str: JSON string of search results.
+    """
+    try:
+        results = jackett.search(query)
+        return "[" + ",".join([item.model_dump_json() for item in results]) + "]"
+    except HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return "Search not found."
+        else:
+            return f"Error searching torrent: {e.response.text}"
+    except Exception as e:
+        return f"An unexpected error occurred: {str(e)}"
+
+
+@mcp.tool()
+def search_tvshow(show: str, season: int = 1, quality: str = "1080p") -> str:
+    """
+    Searches for a torrent for tv series.
+
+    Parameters:
+        show (str): Search query.
+        season (int): Season number. Default is 1.
+        quality (str): Quality of the video. Default is "1080p".
+
+    Returns:
+        str: JSON string of search results.
+    """
+    try:
+        results = jackett.search_show(show, season, quality)
+        return "[" + ",".join([item.model_dump_json() for item in results]) + "]"
+    except HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return "Search not found."
+        else:
+            return f"Error searching torrent: {e.response.text}"
+    except Exception as e:
+        return f"An unexpected error occurred: {str(e)}"
+
+
+@mcp.tool()
+def search_movie(query: str, quality: str = "1080p") -> str:
+    """
+    Searches for a torrent for the movie.
+
+    Parameters:
+        query (str): Search query.
+        quality (str): Quality of the video. Default is "1080p".
+
+    Returns:
+        str: JSON string of search results.
+    """
+    try:
+        results = jackett.search_movie(query, quality)
+        return "[" + ",".join([item.model_dump_json() for item in results]) + "]"
+    except HTTPStatusError as e:
+        if e.response.status_code == 404:
+            return "Search not found."
+        else:
+            return f"Error searching torrent: {e.response.text}"
     except Exception as e:
         return f"An unexpected error occurred: {str(e)}"
